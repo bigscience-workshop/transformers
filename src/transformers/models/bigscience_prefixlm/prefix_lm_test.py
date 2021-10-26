@@ -76,7 +76,8 @@ def prefix_lm_infer():
 
     random_inputs = ["Hello my name is Thomas, and I enjoy"]
     tokenized_inputs = tokenizer.batch_encode_plus(random_inputs, return_tensors="pt")
-    model.generate(tokenized_inputs["input_ids"])
+    print(tokenized_inputs)
+    print(model.generate(tokenized_inputs["input_ids"], use_cache=True))
 
 def main():
     # prefix_invariants()

@@ -644,6 +644,16 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
     def set_output_embeddings(self, new_embeddings):
         self.lm_head = new_embeddings
 
+    def _prepare_attention_mask_for_generation(
+            self, input_ids: torch.Tensor, pad_token_id: int, eos_token_id: int
+    ) -> torch.LongTensor:
+        # it's the first time we feed the attention mask
+        batch_size, sequence_length = input_ids.shape
+        assert batch_size == 1, "We have yet to support batch_size > 1. It's hell for prefix."
+        new_attention_mask = torch.ones(batch_size, 1, sequence_length, sequence_length, dtype=torch.bool,
+                                        device=input_ids.device)  # 1 is for head dimension
+        return new_attention_mask
+
     def prepare_inputs_for_generation(self, input_ids, past=None, **kwargs):
         token_type_ids = kwargs.get("token_type_ids", None)
         # only last token for inputs_ids if past is defined in kwargs
@@ -652,15 +662,19 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
             if token_type_ids is not None:
                 token_type_ids = token_type_ids[:, -1].unsqueeze(-1)
 
-        attention_mask = kwargs.get("attention_mask", None)
-        position_ids = kwargs.get("position_ids", None)
+        assert "attention_mask" in kwargs
+        attention_mask = kwargs["attention_mask"]
+        batch_size, num_head, sequence_length, sequence_length_bis = attention_mask.shape
+        assert batch_size == 1
+        if past:
+            assert sequence_length == 1
+        else:
+            assert sequence_length == sequence_length_bis
 
-        if attention_mask is not None and position_ids is None:
-            # create position_ids on the fly for batch generation
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            if past:
-                position_ids = position_ids[:, -1].unsqueeze(-1)
+        position_ids = kwargs.get("position_ids", None)
+        if past and position_ids is None:
+            # FIXME: This doesn't hold when we have batched inference as we need to keep track of finished sentences.
+            position_ids = torch.tensor([[sequence_length_bis]], dtype=input_ids.dtype, device=input_ids.device)
         else:
             position_ids = None
         return {
@@ -671,6 +685,31 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
+
+    @staticmethod
+    def _update_model_kwargs_for_generation(
+            outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
+    ) -> Dict[str, Any]:
+        new_model_kwargs = GenerationMixin._update_model_kwargs_for_generation(outputs, model_kwargs,
+                                                                               is_encoder_decoder)
+
+        # we update attention_mask
+        if "attention_mask" in model_kwargs:
+            old_attention_mask = new_model_kwargs["attention_mask"]
+            batch_size, num_head, _, old_sequence_length = old_attention_mask.shape
+            new_attention_mask = torch.ones(batch_size, num_head, 1, old_sequence_length + 1,
+                                            dtype=old_attention_mask.dtype, device=old_attention_mask.device)
+            # new_attention_mask[:, :, :old_sequence_length, :old_sequence_length] = old_attention_mask
+            # # New query attends to old keys
+            # new_attention_mask[:, :, 1, :] = True
+            # # Old queries don't attend to new key
+            # new_attention_mask[:, :, :old_sequence_length, old_sequence_length] = False
+        else:
+            # it's the first time we feed the attention mask
+            raise ValueError("Missing attention mask when updating model kwargs for generation.")
+
+        new_model_kwargs["attention_mask"] = new_attention_mask
+        return new_model_kwargs
 
     @add_start_docstrings_to_model_forward(PrefixLM_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
@@ -752,58 +791,4 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
             tuple(past_state.index_select(0, beam_idx.to(past_state.device)) for past_state in layer_past)
             for layer_past in past
         )
-
-    @staticmethod
-    def _update_model_kwargs_for_generation(
-        outputs: ModelOutput, model_kwargs: Dict[str, Any], is_encoder_decoder: bool = False
-    ) -> Dict[str, Any]:
-        new_model_kwargs = GenerationMixin._update_model_kwargs_for_generation(outputs, model_kwargs, is_encoder_decoder)
-
-        # we update attention_mask
-        if "attention_mask" in model_kwargs:
-            old_attention_mask = new_model_kwargs["attention_mask"]
-            batch_size, num_head, old_sequence_length = old_attention_mask.shape[:3]
-            new_attention_mask = torch.ones(batch_size, num_head, old_sequence_length + 1, old_sequence_length + 1, dtype=old_attention_mask.dtype, device=old_attention_mask.device)
-            new_attention_mask[:, :, :old_sequence_length, :old_sequence_length] = old_attention_mask
-            # New query attends to old keys
-            new_attention_mask[:, :, old_sequence_length, :] = True
-            # Old queries don't attend to new key
-            new_attention_mask[:, :, :old_sequence_length, old_sequence_length] = False
-        else:
-            # it's the first time we feed the attention mask
-            raise ValueError("Missing attention mask when updating model kwargs for generation.")
-
-        new_model_kwargs["attention_mask"] = new_attention_mask
-        return new_model_kwargs
-
-
-    def prepare_inputs_for_generation(self, input_ids: torch.LongTensor, **kwargs) -> Dict[str, Any]:
-        """
-        Implement in subclasses of :class:`~transformers.PreTrainedModel` for custom behavior to prepare inputs in the
-        generate method.
-        """
-        new_inputs = super(PrefixLMLMHeadModel, self).prepare_inputs_for_generation(input_ids, **kwargs)
-
-        if "attention_mask" in kwargs:
-            batch_size, num_head, sequence_length, sequence_length_bis = kwargs["attention_mask"].shape
-
-            assert batch_size == 1
-            assert sequence_length == sequence_length_bis
-
-            # Then we've already update the attention mask with correct attention_mask, there's nothing to do besides passing the attention_mask
-            new_attention_mask = kwargs["attention_mask"]
-        else:
-            raise ValueError("Attention_mask should have been prepared in `_prepare_attention_mask_for_generation`")
-
-        return {**new_inputs, "attention_mask": new_attention_mask}
-
-    def _prepare_attention_mask_for_generation(
-        self, input_ids: torch.Tensor, pad_token_id: int, eos_token_id: int
-    ) -> torch.LongTensor:
-        # it's the first time we feed the attention mask
-        batch_size, sequence_length = input_ids.shape
-        assert batch_size == 1, "We have yet to support batch_size > 1. It's hell for prefix."
-        new_attention_mask = torch.ones(batch_size, 1, sequence_length, sequence_length, dtype=torch.bool,
-                                        device=input_ids.device)  # 1 is for head dimension
-        return new_attention_mask
 
