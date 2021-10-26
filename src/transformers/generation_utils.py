@@ -510,9 +510,10 @@ class GenerationMixin:
         if not is_encoder_decoder:
             if "attention_mask" in model_kwargs:
                 attention_mask = model_kwargs["attention_mask"]
-                model_kwargs["attention_mask"] = torch.cat(
-                    [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
-                )
+                if len(attention_mask.shape) == 2:
+                    model_kwargs["attention_mask"] = torch.cat(
+                        [attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1
+                    )
 
         return model_kwargs
 
