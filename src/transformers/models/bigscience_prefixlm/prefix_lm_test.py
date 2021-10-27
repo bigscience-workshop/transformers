@@ -2,10 +2,7 @@ import random
 
 import torch
 
-from transformers import GPT2TokenizerFast
-
-from transformers.models.bigscience_prefixlm.configuration_prefixlm import PrefixLMConfig
-from transformers.models.bigscience_prefixlm.modeling_prefixlm import PrefixLMLMHeadModel
+from transformers import GPT2TokenizerFast, PrefixLMConfig, PrefixLMLMHeadModel
 
 def sample_new_random_id(input_id: int, vocab_size: int):
     assert vocab_size > 1, "Otherwise it's hard to find another id"

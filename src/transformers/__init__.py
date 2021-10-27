@@ -2481,6 +2481,7 @@ if TYPE_CHECKING:
             BigBirdPegasusModel,
             BigBirdPegasusPreTrainedModel,
         )
+        from .models.bigscience_prefixlm import PrefixLMLMHeadModel
         from .models.blenderbot import (
             BLENDERBOT_PRETRAINED_MODEL_ARCHIVE_LIST,
             BlenderbotForCausalLM,
