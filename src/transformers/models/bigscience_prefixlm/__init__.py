@@ -25,7 +25,7 @@ _import_structure = {
 }
 
 if is_torch_available():
-    _import_structure["modeling_bigscience_prefixlm"] = [
+    _import_structure["modeling_prefixlm"] = [
         "PrefixLMModel",
         "PrefixLMLMHeadModel",
     ]

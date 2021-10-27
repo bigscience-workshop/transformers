@@ -682,6 +682,11 @@ if is_torch_available():
             "BigBirdPegasusPreTrainedModel",
         ]
     )
+    _import_structure["models.bigscience_prefixlm"].extend(
+        [
+            "PrefixLMLMHeadModel"
+        ]
+    )
     _import_structure["models.blenderbot"].extend(
         [
             "BLENDERBOT_PRETRAINED_MODEL_ARCHIVE_LIST",
