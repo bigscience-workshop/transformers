@@ -114,6 +114,7 @@ class PrefixLMAttention(nn.Module):
         self.pruned_heads = self.pruned_heads.union(heads)
 
     def _attn(self, query, key, value, attention_mask=None, head_mask=None):
+        # print(query.shape, key.shape, value.shape, attention_mask.shape)
         attn_weights = torch.matmul(query, key.transpose(-1, -2))
 
         if self.scale_attn_weights:
@@ -129,6 +130,10 @@ class PrefixLMAttention(nn.Module):
             attn_weights.masked_fill_(~attention_mask, -10000.0)
 
         attn_weights = nn.Softmax(dim=-1)(attn_weights)
+
+        # # DEBUG
+        # if attn_weights.shape[-2] != 1:
+        #     print(attn_weights[0, 0])
 
         # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
         attn_weights = attn_weights.type(value.dtype)
@@ -652,6 +657,10 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
         assert batch_size == 1, "We have yet to support batch_size > 1. It's hell for prefix."
         new_attention_mask = torch.ones(batch_size, 1, sequence_length, sequence_length, dtype=torch.bool,
                                         device=input_ids.device)  # 1 is for head dimension
+        # HACK: the prefix lm seems wrong, ie the last token should be attended by all the other.
+        new_attention_mask[:,:, :-1,-1] = False
+        print(f"Initial_attention mask: {new_attention_mask}")
+        # TODO: understand why putting result or ~result doesn't change output
         return new_attention_mask
 
     def prepare_inputs_for_generation(self, input_ids, past=None, **kwargs):
@@ -672,11 +681,14 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
             assert sequence_length == sequence_length_bis
 
         position_ids = kwargs.get("position_ids", None)
-        if past and position_ids is None:
-            # FIXME: This doesn't hold when we have batched inference as we need to keep track of finished sentences.
-            position_ids = torch.tensor([[sequence_length_bis]], dtype=input_ids.dtype, device=input_ids.device)
-        else:
-            position_ids = None
+        # if past and position_ids is None:
+        #     # FIXME: This doesn't hold when we have batched inference as we need to keep track of finished sentences. works only on batch size = 1
+        #     position_ids = torch.tensor([[sequence_length_bis]], dtype=input_ids.dtype, device=input_ids.device)
+        # else:
+        #     position_ids = None
+        # print(position_ids)
+        # print(f"Past: {past}")
+
         return {
             "input_ids": input_ids,
             "past_key_values": past,
