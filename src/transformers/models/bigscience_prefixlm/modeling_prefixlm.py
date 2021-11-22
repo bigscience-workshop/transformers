@@ -87,7 +87,7 @@ class PrefixLMAttention(nn.Module):
 
         # Layer-wise attention scaling, reordering, and upcasting
         self.scale_attn_by_inverse_layer_idx = config.scale_attn_by_inverse_layer_idx
-        self.layer_idx = layer_idx
+        self.layer_idx = max(1, layer_idx) # https://github.com/bigscience-workshop/Megatron-DeepSpeed/blob/main/megatron/model/transformer.py#L137
         self.reorder_and_upcast_attn = config.reorder_and_upcast_attn
 
         self.c_attn = nn.Linear(self.embed_dim, 3 * self.embed_dim)
@@ -122,7 +122,7 @@ class PrefixLMAttention(nn.Module):
 
         # Layer-wise attention scaling
         if self.scale_attn_by_inverse_layer_idx:
-            attn_weights = attn_weights / float(self.layer_idx + 1)
+            attn_weights = attn_weights / float(self.layer_idx)
 
         if attention_mask is not None:
             assert attention_mask.dtype == torch.bool, f"Attention mask support only passing bool got {attention_mask.dtype}"
@@ -161,7 +161,7 @@ class PrefixLMAttention(nn.Module):
             scale_factor /= float(value.size(-1)) ** 0.5
 
         if self.scale_attn_by_inverse_layer_idx:
-            scale_factor /= float(self.layer_idx + 1)
+            scale_factor /= float(self.layer_idx)
 
         # Upcast (turn off autocast) and reorder (Scale K by 1 / root(dk))
         if is_amp_available:
@@ -657,8 +657,6 @@ class PrefixLMLMHeadModel(PrefixLMPreTrainedModel):
         assert batch_size == 1, "We have yet to support batch_size > 1. It's hell for prefix."
         new_attention_mask = torch.ones(batch_size, 1, sequence_length, sequence_length, dtype=torch.bool,
                                         device=input_ids.device)  # 1 is for head dimension
-        # HACK: the prefix lm seems wrong, ie the last token should be attended by all the other.
-        new_attention_mask[:,:, :-1,-1] = False
         print(f"Initial_attention mask: {new_attention_mask}")
         # TODO: understand why putting result or ~result doesn't change output
         return new_attention_mask

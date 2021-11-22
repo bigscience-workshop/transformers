@@ -171,14 +171,6 @@ def convert_megatron_checkpoint(args, input_state_dict, config):
             op_name == "attention.query_key_value" or op_name == "self_attention.query_key_value"
         ) and weight_or_bias == "weight":
 
-            # Insert a tensor of 1x1xDxD bias.
-            causal_mask = torch.tril(torch.ones((n_positions, n_positions), dtype=torch.float16)).view(1, 1, n_positions, n_positions)
-            output_state_dict[layer_name + ".attn.bias"] = causal_mask
-
-            # Insert a "dummy" tensor for masked_bias.
-            masked_bias = torch.tensor(-1e4, dtype=torch.float16)
-            output_state_dict[layer_name + ".attn.masked_bias"] = masked_bias
-
             out_val = fix_query_key_value_ordering(val, checkpoint_version, 3, heads, hidden_size_per_head)
             out_val = out_val.contiguous()
             # Store.
@@ -287,8 +279,8 @@ def main():
     # Store the config to file.
     output_config_file = os.path.join(basename, "config.json")
     output_config = config.to_dict()
-    output_config["architectures"] = ["GPT2LMHeadModel"]
-    output_config["model_type"] = "gpt2"
+    output_config["architectures"] = ["GPT2LMHeadModel"] # TODO
+    output_config["model_type"] = "gpt2" # TODO
     print(f'Saving config to "{output_config_file}"')
     with open(output_config_file, "w") as f:
         json.dump(output_config, f)
